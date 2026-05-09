@@ -6,19 +6,25 @@
   "scripts": {
     "compile": "tsc",
     "start": "node dist/index.js",
-    "dev": "pnpm compile && node dist/1.prompt.js"
+    "dev:propmpt": "pnpm compile && node dist/1.prompt.js",
+    "db:up": "docker compose -f docker-compose.yml up -d",
+    "db:down": "docker compose -f docker-compose.yml down",
+    "dev:rag": "pnpm compile && node dist/2.rag.js",
+    "dev:rag:all": "pnpm db:up && pnpm dev:rag"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "langchain": "^1.4.0",
-    "@langchain/ollama": "^1.2.7",
+    "@langchain/community": "^1.1.28",
     "@langchain/core": "^1.1.45",
-    "@langchain/community": "^1.1.28"
+    "@langchain/ollama": "^1.2.7",
+    "langchain": "^1.4.0",
+    "pg": "^8.14.1"
   },
   "devDependencies": {
-    "@types/node": "^25.6.2"
+    "@types/node": "^25.6.2",
+    "@types/pg": "^8.20.0"
   }
 }
