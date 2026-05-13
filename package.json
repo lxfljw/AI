@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "pnpm": {
+    "overrides": {
+      "vue-metamorph": "3.3.4"
+    }
+  },
   "scripts": {
     "compile": "tsc"
   },
