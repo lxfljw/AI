@@ -103,12 +103,49 @@ function buildVerifiedFactSystemMessage(
   );
 }
 
+/**
+ * 检索层已给出结构化命中时，直接拼回答，避免小模型无视 System 仍吐「未找到」。
+ * 无法解析或未命中时返回 null，再走 LLM。
+ */
+function buildDeterministicAnswer(
+  prompt: string,
+  ragForLlm: string,
+): string | null {
+  const hint = extractMentionedNameFromPrompt(prompt);
+  if (!hint) return null;
+  const rows = parseRagEntityLines(ragForLlm);
+  if (rows.length === 0) return null;
+
+  const exact = rows.find((r) => r.name === hint);
+  if (exact) {
+    return `根据参考资料，${exact.role}「${exact.name}」的完整信息为：角色：${exact.role}，姓名：${exact.name}，id：${exact.id}。`;
+  }
+
+  if (!ragForLlm.includes("【检索说明】")) return null;
+  const fuzzyNames = parseFuzzyTargetNamesFromRag(ragForLlm);
+  if (fuzzyNames.length === 0) return null;
+  const hits = rows.filter((r) => fuzzyNames.includes(r.name));
+  if (hits.length === 0) return null;
+
+  const lines = hits
+    .map((h) => `角色：${h.role}，姓名：${h.name}，id：${h.id}`)
+    .join("；");
+  return `您问的「${hint}」在资料中没有完全一致姓名；按近似匹配对应到「${fuzzyNames.join("、")}」。完整信息：${lines}。`;
+}
+
 async function main() {
-  const prompt = "你好，卢想阳的学生信息是什么？";
+  const prompt = "你好，罗不群的学生信息是什么？";
   const ragInfo = await getStudentKnowledgeDocuments(prompt);
   console.log("ragInfo", ragInfo);
-  console.log("开始调用大模型");
   const ragForLlm = ragTextForModel(ragInfo);
+
+  const direct = buildDeterministicAnswer(prompt, ragForLlm);
+  if (direct !== null) {
+    console.log("大模型返回的结果：（结构化直出，跳过小模型）", direct);
+    return direct;
+  }
+
+  console.log("开始调用大模型");
   const verified = buildVerifiedFactSystemMessage(prompt, ragForLlm);
   const messages: (SystemMessage | HumanMessage)[] = [
     new SystemMessage(SYSTEM_INSTRUCTION),
