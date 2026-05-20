@@ -15,7 +15,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { sseDemoPayloadSchema } from "../../shared/demo-sse";
+import { sseDemoPayloadSchema } from "~~/shared/demo-sse";
 
 type UserTurn = { role: "user"; content: string; awaitingReply?: boolean };
 

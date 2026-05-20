@@ -8,7 +8,7 @@ import { ChatOllama } from "@langchain/ollama";
 import { createAgent } from "langchain";
 import * as z from "zod";
 
-import type { SseToolPayload } from "../../shared/demo-sse";
+import type { SseToolPayload } from "~~/shared/demo-sse";
 
 /** {@link runLangchainReactAgentStream} 的输入与流式回调 */
 export interface LangchainAgentStreamOptions {
