@@ -3,7 +3,7 @@ ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-alpine
 FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+RUN corepack enable && corepack prepare pnpm@11.0.8 --activate
 WORKDIR /repo
 
 FROM base AS build
