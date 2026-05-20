@@ -3,25 +3,39 @@ ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-alpine
 FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+ENV PNPM_STORE_DIR="/pnpm/store"
 RUN corepack enable && corepack prepare pnpm@11.0.8 --activate
 WORKDIR /repo
 
 FROM base AS build
-# 与本地一致：在 monorepo 根目录清理后安装依赖
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/nuxtjs-ai/package.json ./apps/nuxtjs-ai/
+
+# 国内构建：镜像源 + 拉长超时，避免 pnpm 下载/脚本阶段 TimeoutError
+RUN printf '%s\n' \
+  'registry=https://registry.npmmirror.com' \
+  'fetch-timeout=600000' \
+  'fetch-retries=5' \
+  'network-concurrency=8' \
+  > .npmrc
+
 RUN sed -i \
   -e 's/esbuild: false/esbuild: true/' \
   -e "s/'@parcel\\/watcher': false/'@parcel\\/watcher': true/" \
-  pnpm-workspace.yaml \
-  && rm -rf node_modules apps/nuxtjs-ai/node_modules \
-  && pnpm install --frozen-lockfile --filter nuxtjs-ai...
+  pnpm-workspace.yaml
+
+# 跳过 postinstall（npx nuxt prepare 易超时），装完再单独 prepare
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
+  rm -rf node_modules apps/nuxtjs-ai/node_modules \
+  && pnpm install --frozen-lockfile --filter nuxtjs-ai... --ignore-scripts \
+  && pnpm rebuild esbuild @parcel/watcher --filter nuxtjs-ai
 
 RUN test -x apps/nuxtjs-ai/node_modules/.bin/nuxt
 
 COPY apps/nuxtjs-ai ./apps/nuxtjs-ai
 
 ENV NUXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter nuxtjs-ai exec nuxt prepare
 RUN pnpm --filter nuxtjs-ai exec nuxt build
 
 FROM ${NODE_IMAGE} AS runner
