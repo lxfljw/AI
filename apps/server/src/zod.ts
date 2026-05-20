@@ -13,7 +13,7 @@ const UserSchema = z
 // console.log(UserSchema);
 
 const llm = new ChatOllama({
-  model: "qwen3.5:2b",
+  model: "qwen3.5:0.8b",
 });
 
 const agent = createAgent({

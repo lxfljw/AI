@@ -3,7 +3,7 @@ import { HumanMessage, SystemMessage } from "langchain";
 import { getStudentKnowledgeDocuments } from "./2.rag.js";
 
 const llm = new ChatOllama({
-  model: "qwen3.5:2b",
+  model: "qwen3.5:0.8b",
   /** 关闭 Ollama 思维链，避免 reasoning_content 无限拖长、与正文打架 */
   think: false,
   temperature: 0.1,
