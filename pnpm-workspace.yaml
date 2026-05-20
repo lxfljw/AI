@@ -5,5 +5,5 @@ allowBuilds:
   '@parcel/watcher': false
   esbuild: false
   msw: false
-  protobufjs: false
+  protobufjs: true
   vue-demi: false
