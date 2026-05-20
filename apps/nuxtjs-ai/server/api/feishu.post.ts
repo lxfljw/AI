@@ -4,6 +4,21 @@ import {
   verifyLarkRequestSignature,
 } from "../utils/feishuCrypto";
 
+/**
+ * 飞书「请求网址校验」成功时 **只能** 返回该 JSON，且 challenge 须与解密/明文请求中一致，无其他字段。
+ * @see https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/event-subscription-configure-/request-url-configuration-case
+ */
+function feishuChallengeResponse(challenge: string) {
+  const body = JSON.stringify({ challenge });
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": String(Buffer.byteLength(body, "utf8")),
+    },
+  });
+}
+
 function jsonResponse(data: unknown, status = 200) {
   const body = JSON.stringify(data);
   return new Response(body, {
@@ -78,7 +93,7 @@ export default defineEventHandler(async (event) => {
     if (typeof challenge !== "string") {
       return jsonResponse({ error: "missing challenge" }, 400);
     }
-    return jsonResponse({ challenge });
+    return feishuChallengeResponse(challenge);
   }
 
   return jsonResponse({ message: "ignored event type" }, 200);

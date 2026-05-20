@@ -1,0 +1,15 @@
+services:
+  nuxtjs-ai:
+    build:
+      context: ../..
+      dockerfile: apps/nuxtjs-ai/Dockerfile
+    image: nuxtjs-ai:local
+    ports:
+      - "3000:3000"
+    environment:
+      NUXT_OLLAMA_HOST: ${NUXT_OLLAMA_HOST:-http://host.docker.internal:11434}
+      NUXT_OLLAMA_MODEL: ${NUXT_OLLAMA_MODEL:-qwen3.5:2b}
+      NUXT_FEISHU_VERIFICATION_TOKEN: ${NUXT_FEISHU_VERIFICATION_TOKEN:-}
+      NUXT_FEISHU_ENCRYPT_KEY: ${NUXT_FEISHU_ENCRYPT_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
