@@ -3,6 +3,9 @@ services:
     build:
       context: ../..
       dockerfile: apps/nuxtjs-ai/Dockerfile
+      args:
+        # 默认走 DaoCloud 代理，避免直连 docker.io 超时；要官方镜像可 export NODE_IMAGE=node:22-alpine
+        NODE_IMAGE: ${NODE_IMAGE:-docker.m.daocloud.io/library/node:22-alpine}
     image: nuxtjs-ai:local
     ports:
       - "3000:3000"

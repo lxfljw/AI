@@ -1,8 +1,6 @@
-# syntax=docker/dockerfile:1
-# Monorepo 根目录为构建上下文：docker build -f apps/nuxtjs-ai/Dockerfile -t nuxtjs-ai .
-# 或本目录：docker compose up -d --build
-
-FROM node:22-alpine AS base
+# NODE_IMAGE 默认走 DaoCloud；要官方镜像：--build-arg NODE_IMAGE=node:22-alpine（在 monorepo 根目录构建，context 为 .）
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-alpine
+FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
@@ -18,7 +16,7 @@ COPY apps/nuxtjs-ai ./apps/nuxtjs-ai
 ENV NUXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter nuxtjs-ai run build
 
-FROM node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NUXT_TELEMETRY_DISABLED=1
