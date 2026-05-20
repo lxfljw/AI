@@ -1,9 +1,23 @@
 import tailwindcss from "@tailwindcss/vite";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const rootDir = fileURLToPath(new URL(".", import.meta.url));
+const sharedDir = resolve(rootDir, "shared");
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
+
+  alias: {
+    "~~/shared": sharedDir,
+  },
+  nitro: {
+    alias: {
+      "~~/shared": sharedDir,
+    },
+  },
 
   runtimeConfig: {
     ollamaHost: process.env.NUXT_OLLAMA_HOST ?? "http://127.0.0.1:11434",
@@ -17,6 +31,11 @@ export default defineNuxtConfig({
 
   vite: {
     plugins: [tailwindcss()],
+    resolve: {
+      alias: {
+        "~~/shared": sharedDir,
+      },
+    },
   },
 
   modules: ["shadcn-nuxt"],

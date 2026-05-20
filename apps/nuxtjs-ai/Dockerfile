@@ -7,14 +7,22 @@ RUN corepack enable && corepack prepare pnpm@11.0.8 --activate
 WORKDIR /repo
 
 FROM base AS build
+# 与本地一致：在 monorepo 根目录清理后安装依赖
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/nuxtjs-ai/package.json ./apps/nuxtjs-ai/
-RUN pnpm install --frozen-lockfile --filter nuxtjs-ai...
+RUN sed -i \
+  -e 's/esbuild: false/esbuild: true/' \
+  -e "s/'@parcel\\/watcher': false/'@parcel\\/watcher': true/" \
+  pnpm-workspace.yaml \
+  && rm -rf node_modules apps/nuxtjs-ai/node_modules \
+  && pnpm install --frozen-lockfile --filter nuxtjs-ai...
+
+RUN test -x apps/nuxtjs-ai/node_modules/.bin/nuxt
 
 COPY apps/nuxtjs-ai ./apps/nuxtjs-ai
 
 ENV NUXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter nuxtjs-ai run build
+RUN pnpm --filter nuxtjs-ai exec nuxt build
 
 FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
