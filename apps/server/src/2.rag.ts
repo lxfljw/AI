@@ -273,6 +273,34 @@ async function persistStudentKnowledgeTextToDatabase(
   await saveRagDocumentsToDatabase(vectorStore, documents);
 }
 
+/** 将指定文本文件灌入 PG 向量表（默认先 TRUNCATE，设 RAG_APPEND=1 则追加） */
+export async function ingestStudentKnowledgeFile(
+  textFilePath: string,
+): Promise<{ lineCount: number; documentCount: number }> {
+  const raw = await readFile(textFilePath, "utf8");
+  const lineCount = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0).length;
+
+  const dimensions = (await embeddings.embedQuery("__dim_probe__")).length;
+  const vectorStore = await PGVectorStore.initialize(embeddings, {
+    postgresConnectionOptions,
+    tableName: RAG_TABLE_NAME,
+    dimensions,
+    distanceStrategy: "cosine",
+  });
+
+  try {
+    await persistStudentKnowledgeTextToDatabase(vectorStore, textFilePath);
+    const documents =
+      await loadStudentKnowledgeDocumentsFromText(textFilePath);
+    return { lineCount, documentCount: documents.length };
+  } finally {
+    await vectorStore.end();
+  }
+}
+
 export async function getStudentKnowledgeDocuments(prompt: string) {
   console.log("rag 提示词", prompt);
   const dimensions = (await embeddings.embedQuery("__dim_probe__")).length;
