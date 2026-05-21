@@ -32,6 +32,19 @@ const embeddings = new OllamaEmbeddings({
   baseUrl: process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
 });
 
+/** LangChain PGVectorStore 单次 SQL INSERT 的行数上限（库内默认 500） */
+const PGVECTOR_SQL_INSERT_CHUNK = 500;
+
+function logRag(stage: string, detail?: Record<string, unknown>) {
+  if (detail) console.log(`[rag-ingest] ${stage}`, detail);
+  else console.log(`[rag-ingest] ${stage}`);
+}
+
+function resolveIngestBatchSize(): number {
+  const n = Number.parseInt(process.env.RAG_INGEST_BATCH_SIZE ?? "50", 10);
+  return Number.isFinite(n) && n > 0 ? n : 50;
+}
+
 async function search(
   vectorStore: PGVectorStore,
   text: string,
@@ -244,16 +257,55 @@ async function loadStudentKnowledgeDocumentsFromText(
 }
 
 async function clearRagDocumentsTable(): Promise<void> {
+  logRag("清空表", { table: RAG_TABLE_NAME });
   const pool = new pg.Pool({ connectionString });
   await pool.query(`TRUNCATE TABLE ${RAG_TABLE_NAME}`);
   await pool.end();
 }
 
+/**
+ * 分批灌库：每批一次 Ollama embed（批量 texts）+ PG 批量 INSERT。
+ * 不是「一条一条 commit」；完成一批后库里才能查到该批行数增加。
+ */
 async function saveRagDocumentsToDatabase(
   vectorStore: PGVectorStore,
   documents: Document[],
 ): Promise<void> {
-  await vectorStore.addDocuments(documents);
+  const batchSize = resolveIngestBatchSize();
+  const total = documents.length;
+  const batchTotal = Math.ceil(total / batchSize);
+  const started = Date.now();
+
+  logRag("写入策略", {
+    totalDocuments: total,
+    ingestBatchSize: batchSize,
+    ingestBatches: batchTotal,
+    ollamaEmbed: "每批一次 client.embed({ input: texts[] })",
+    postgresInsert: `每批向量算完后 SQL 批量 INSERT（单条 SQL 最多 ${PGVECTOR_SQL_INSERT_CHUNK} 行）`,
+    env: "RAG_INGEST_BATCH_SIZE 可调每批文档数",
+  });
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = documents.slice(i, i + batchSize);
+    const batchNo = Math.floor(i / batchSize) + 1;
+    const batchStarted = Date.now();
+    logRag("批次开始", {
+      batch: `${batchNo}/${batchTotal}`,
+      docRange: `${i + 1}-${i + batch.length}`,
+      count: batch.length,
+    });
+    await vectorStore.addDocuments(batch);
+    logRag("批次完成", {
+      batch: `${batchNo}/${batchTotal}`,
+      ms: Date.now() - batchStarted,
+      progress: `${Math.min(i + batch.length, total)}/${total}`,
+    });
+  }
+
+  logRag("全部批次完成", {
+    totalDocuments: total,
+    ms: Date.now() - started,
+  });
 }
 
 async function persistStudentKnowledgeTextToDatabase(
@@ -263,12 +315,20 @@ async function persistStudentKnowledgeTextToDatabase(
   if (!(await fileExists(textFilePath))) {
     throw new Error(`知识库文本不存在: ${textFilePath}`);
   }
+  logRag("解析文本", { file: textFilePath });
   const documents = await loadStudentKnowledgeDocumentsFromText(textFilePath);
   if (documents.length === 0) {
     throw new Error(`知识库文本无非空行: ${textFilePath}`);
   }
+  logRag("解析完成", {
+    file: textFilePath,
+    documentCount: documents.length,
+    note: "一行学籍通常拆成约 3 条 Document（主学生+同学+老师）",
+  });
   if (process.env.RAG_APPEND !== "1") {
     await clearRagDocumentsTable();
+  } else {
+    logRag("追加模式", { RAG_APPEND: "1", skipTruncate: true });
   }
   await saveRagDocumentsToDatabase(vectorStore, documents);
 }
@@ -277,13 +337,24 @@ async function persistStudentKnowledgeTextToDatabase(
 export async function ingestStudentKnowledgeFile(
   textFilePath: string,
 ): Promise<{ lineCount: number; documentCount: number }> {
+  const ingestStarted = Date.now();
+  logRag("灌库开始", {
+    file: textFilePath,
+    database: connectionString.replace(/:[^:@/]+@/, ":***@"),
+    ollama: process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434",
+    embedModel: "mxbai-embed-large:latest",
+  });
+
   const raw = await readFile(textFilePath, "utf8");
   const lineCount = raw
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0).length;
 
+  logRag("探测向量维度…");
   const dimensions = (await embeddings.embedQuery("__dim_probe__")).length;
+  logRag("初始化 PGVectorStore", { table: RAG_TABLE_NAME, dimensions });
+
   const vectorStore = await PGVectorStore.initialize(embeddings, {
     postgresConnectionOptions,
     tableName: RAG_TABLE_NAME,
@@ -295,6 +366,11 @@ export async function ingestStudentKnowledgeFile(
     await persistStudentKnowledgeTextToDatabase(vectorStore, textFilePath);
     const documents =
       await loadStudentKnowledgeDocumentsFromText(textFilePath);
+    logRag("灌库结束", {
+      lineCount,
+      documentCount: documents.length,
+      ms: Date.now() - ingestStarted,
+    });
     return { lineCount, documentCount: documents.length };
   } finally {
     await vectorStore.end();

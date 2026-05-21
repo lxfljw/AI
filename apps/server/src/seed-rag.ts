@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { ingestStudentKnowledgeFile } from "./2.rag.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUTPUT_FILE = path.join(__dirname, "..", "data", "students1000.txt");
 
 const SURNAMES = [
   "赵", "钱", "孙", "李", "周", "吴", "郑", "王", "冯", "陈", "褚", "卫", "蒋",
@@ -19,6 +18,23 @@ const GIVEN_PARTS = [
   "雅馨", "文博", "梦洁", "天佑", "佳琪", "明轩", "晓彤", "建国", "秀英", "志强",
   "丽华", "海涛", "春梅", "国庆", "桂英", "小红", "小明", "晓东", "雪梅", "建军",
 ];
+
+/** 命令行第一个数字参数 > 环境变量 SEED_COUNT > 默认 1000 */
+function resolveLineCount(): number {
+  const fromArgv = process.argv.slice(2).find((arg) => /^\d+$/.test(arg));
+  const raw = process.env.SEED_COUNT ?? fromArgv ?? "1000";
+  const lineCount = Number.parseInt(raw, 10);
+  if (!Number.isFinite(lineCount) || lineCount <= 0) {
+    throw new Error(
+      `条数无效: ${raw}。用法: pnpm seed:rag -- 500  或  SEED_COUNT=500 pnpm seed:rag`,
+    );
+  }
+  return lineCount;
+}
+
+function seedOutputPath(lineCount: number): string {
+  return path.join(__dirname, "..", "data", `students-seed-${lineCount}.txt`);
+}
 
 function randomInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
@@ -70,32 +86,33 @@ function generateMockLines(lineCount: number): string[] {
 }
 
 async function main() {
-  const lineCount = Number.parseInt(process.env.SEED_COUNT ?? "1000", 10);
-  if (!Number.isFinite(lineCount) || lineCount <= 0) {
-    throw new Error(`SEED_COUNT 无效: ${process.env.SEED_COUNT}`);
-  }
+  const lineCount = resolveLineCount();
+  const outputFile = seedOutputPath(lineCount);
 
   const databaseUrl =
     process.env.DATABASE_URL ?? "postgresql://rag:rag@127.0.0.1:5432/rag";
   const ollamaBase = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
 
-  console.log("[seed-rag] 生成模拟数据…", { lineCount, output: OUTPUT_FILE });
+  console.log("[seed-rag] 生成模拟数据…", { lineCount, output: outputFile });
   const lines = generateMockLines(lineCount);
-  await writeFile(OUTPUT_FILE, `${lines.join("\n")}\n`, "utf8");
-  console.log("[seed-rag] 文本已写入", OUTPUT_FILE);
+  await writeFile(outputFile, `${lines.join("\n")}\n`, "utf8");
+  console.log("[seed-rag] 文本已写入", outputFile);
 
+  const ingestBatchSize = process.env.RAG_INGEST_BATCH_SIZE ?? "50";
   console.log("[seed-rag] 开始向量化并写入 PostgreSQL…", {
     databaseUrl,
     ollamaBase,
+    ingestBatchSize,
+    note: "按批 embed+INSERT，每批完成可查库；详见 [rag-ingest] 日志",
   });
   const started = Date.now();
   const { lineCount: parsedLines, documentCount } =
-    await ingestStudentKnowledgeFile(OUTPUT_FILE);
+    await ingestStudentKnowledgeFile(outputFile);
   console.log("[seed-rag] 完成", {
     ms: Date.now() - started,
     parsedLines,
     documentCount,
-    hint: "飞书/Nuxt 检索使用表 rag_documents，无需改 students100.txt",
+    hint: "飞书/Nuxt 检索使用表 rag_documents",
   });
 }
 

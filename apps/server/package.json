@@ -11,8 +11,10 @@
     "db:down": "docker compose -f docker-compose.yml down",
     "dev:rag": "pnpm compile && node dist/2.rag.js",
     "dev:rag:all": "pnpm db:up && pnpm dev:rag",
-    "seed:rag:1000": "pnpm compile && node dist/seed-rag-1000.js",
-    "seed:rag:1000:all": "pnpm db:up && pnpm seed:rag:1000",
+    "seed:rag": "pnpm compile && node dist/seed-rag.js",
+    "seed:rag:all": "pnpm db:up && pnpm seed:rag",
+    "seed:rag:1000": "pnpm seed:rag -- 1000",
+    "seed:rag:1000:all": "pnpm db:up && pnpm seed:rag -- 1000",
     "dev:zod": "pnpm compile && node dist/zod.js"
   },
   "keywords": [],
