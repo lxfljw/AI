@@ -22,9 +22,11 @@ export default defineNuxtConfig({
   runtimeConfig: {
     ollamaHost: process.env.NUXT_OLLAMA_HOST ?? "http://127.0.0.1:11434",
     ollamaModel: process.env.NUXT_OLLAMA_MODEL ?? "qwen3.5:0.8b",
-    /** 事件订阅 Verification Token；不配则不在服务端校验 token */
+    /** 长连接模式：企业自建应用 App ID / Secret */
+    feishuAppId: process.env.NUXT_FEISHU_APP_ID ?? "",
+    feishuAppSecret: process.env.NUXT_FEISHU_APP_SECRET ?? "",
+    /** Webhook 模式才需要；长连接可忽略 */
     feishuVerificationToken: process.env.NUXT_FEISHU_VERIFICATION_TOKEN ?? "",
-    /** Encrypt Key；后台开启事件加密时用于解密 `{ encrypt }` */
     feishuEncryptKey: process.env.NUXT_FEISHU_ENCRYPT_KEY ?? "",
   },
   css: ["~/assets/css/tailwind.css"],
