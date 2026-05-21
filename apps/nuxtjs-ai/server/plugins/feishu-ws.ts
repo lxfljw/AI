@@ -1,4 +1,4 @@
-import { startFeishuWs } from "../ws/feishu";
+import { startFeishuWs } from "../feishu/ws";
 
 export default defineNitroPlugin(() => {
   const { feishuAppId, feishuAppSecret } = useRuntimeConfig();

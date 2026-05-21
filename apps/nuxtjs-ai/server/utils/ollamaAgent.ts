@@ -9,6 +9,7 @@ import { createAgent } from "langchain";
 import * as z from "zod";
 
 import type { SseToolPayload } from "~~/shared/demo-sse";
+import { queryRagKnowledge } from "./rag";
 
 /** {@link runLangchainReactAgentStream} 的输入与流式回调 */
 export interface LangchainAgentStreamOptions {
@@ -57,7 +58,28 @@ function buildTools() {
     },
   );
 
-  return [getServerTime, calculator];
+  const searchKnowledgeBase = tool(
+    async ({ query }) => {
+      const config = useRuntimeConfig();
+      return queryRagKnowledge(query, {
+        databaseUrl: String(config.ragDatabaseUrl).trim(),
+        ollamaHost: String(config.ollamaHost).trim(),
+        embedModel: String(config.ragEmbedModel).trim() || undefined,
+        topK: Number(config.ragSearchTopK) || 5,
+        studentsFilePath: String(config.ragStudentsFile).trim() || undefined,
+      });
+    },
+    {
+      name: "search_knowledge_base",
+      description:
+        "从 PostgreSQL 向量知识库检索学生/老师/id 等资料。用户问姓名、学号、师生关系或需查库事实时调用；传入完整问句。",
+      schema: z.object({
+        query: z.string().describe("检索问句，如「崔瑞霖的学生 id」"),
+      }),
+    },
+  );
+
+  return [getServerTime, calculator, searchKnowledgeBase];
 }
 
 /** 从 LangChain 消息的 content 字段抽出纯文本（兼容 string / 多块文本数组） */
@@ -185,7 +207,7 @@ export async function runLangchainReactAgentStream(
     model: llm,
     tools: buildTools(),
     systemPrompt:
-      "你是中文助手，可调用工具获取精确时间与算术结果；需要时使用工具，其余直接作答。",
+      "你是中文助手，可调用工具获取精确时间、算术结果、以及知识库检索结果；涉及学生/老师/姓名/id 或需事实依据时优先 search_knowledge_base，需要时使用其他工具，其余直接作答。",
   });
 
   const stream = await agent.stream(
@@ -198,4 +220,22 @@ export async function runLangchainReactAgentStream(
   for await (const chunk of stream) {
     handleStreamChunk(chunk, options.onDelta, options.onToolEvent);
   }
+}
+
+/** 一次性跑完 Agent 并返回完整正文（供飞书等非流式场景） */
+export async function runLangchainReactAgentOnce(
+  options: Omit<LangchainAgentStreamOptions, "onDelta"> & {
+    onDelta?: LangchainAgentStreamOptions["onDelta"];
+  },
+): Promise<string> {
+  let text = "";
+  const { onDelta: onDeltaProgress, ...rest } = options;
+  await runLangchainReactAgentStream({
+    ...rest,
+    onDelta: (delta) => {
+      text += delta;
+      onDeltaProgress?.(delta);
+    },
+  });
+  return text;
 }
