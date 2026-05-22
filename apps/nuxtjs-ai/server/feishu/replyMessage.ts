@@ -1,6 +1,12 @@
 import { HumanMessage } from "@langchain/core/messages";
 import type * as Lark from "@larksuiteoapi/node-sdk";
 import type { SseToolPayload } from "~~/shared/demo-sse";
+import {
+  buildAnswerCardBody,
+  buildFeishuCardContent,
+  buildProcessingCardBody,
+  type FeishuCardTemplate,
+} from "./feishuCard";
 import { runLangchainReactAgentOnce } from "../utils/ollamaAgent";
 
 function logStage(stage: string, detail?: Record<string, unknown>) {
@@ -125,18 +131,31 @@ export function buildFeishuTextContent(text: string): FeishuTextMessagePayload {
   };
 }
 
-/** 一次性发送一条文本消息到指定 chat */
-export async function sendFeishuTextOnce(
+/** 一次性发送一条消息卡片到指定 chat */
+export async function sendFeishuCardOnce(
   client: Lark.Client,
   chatId: string,
-  text: string,
-  stage?: string,
+  options: {
+    title: string;
+    body: string;
+    template?: FeishuCardTemplate;
+    stage?: string;
+  },
 ): Promise<void> {
-  logStage(stage ? `发送消息 → ${stage}` : "发送消息", {
+  const stage = options.stage;
+  logStage(stage ? `发送卡片 → ${stage}` : "发送卡片", {
     chat_id: chatId,
-    preview: text.length > 120 ? `${text.slice(0, 120)}…` : text,
+    title: options.title,
+    preview:
+      options.body.length > 120
+        ? `${options.body.slice(0, 120)}…`
+        : options.body,
   });
-  const { content, msg_type } = buildFeishuTextContent(text);
+  const { content, msg_type } = buildFeishuCardContent({
+    title: options.title,
+    body: options.body,
+    template: options.template,
+  });
   await client.im.v1.message.create({
     params: {
       receive_id_type: "chat_id",
@@ -148,6 +167,21 @@ export async function sendFeishuTextOnce(
     },
   });
   logStage(stage ? `发送完成 → ${stage}` : "发送完成", { chat_id: chatId });
+}
+
+/** @deprecated 请使用 sendFeishuCardOnce；保留供 Webhook 等文本场景 */
+export async function sendFeishuTextOnce(
+  client: Lark.Client,
+  chatId: string,
+  text: string,
+  stage?: string,
+): Promise<void> {
+  await sendFeishuCardOnce(client, chatId, {
+    title: stage ?? "消息",
+    body: text,
+    template: "grey",
+    stage,
+  });
 }
 
 export interface ReplyOnceWithOllamaOptions {
@@ -210,7 +244,11 @@ export async function replyOnceWithOllama(
   ollama: ReplyOnceWithOllamaOptions,
 ): Promise<void> {
   const answer = await generateOllamaAnswer(userText, ollama);
-  await sendFeishuTextOnce(client, chatId, answer);
+  await sendFeishuCardOnce(client, chatId, {
+    title: "AI 回复",
+    body: buildAnswerCardBody(answer),
+    template: "blue",
+  });
 }
 
 /** 处理 im.message.receive_v1：先回复「正在处理」，再发 AI 完整结果 */
@@ -255,18 +293,23 @@ export async function replyImMessageReceiveV1(
   logStage("[2/4] 解析完成", { chat_id, userText });
 
   try {
-    logStage("[3/4] 发送「正在处理」提示");
-    await sendFeishuTextOnce(
-      client,
-      chat_id,
-      `正在处理你的提问：${userText}，请稍后。。。`,
-      "正在处理",
-    );
+    logStage("[3/4] 发送「正在处理」卡片");
+    await sendFeishuCardOnce(client, chat_id, {
+      title: "处理中",
+      body: buildProcessingCardBody(userText),
+      template: "orange",
+      stage: "正在处理",
+    });
 
     const answer = await generateOllamaAnswer(userText, ollama);
 
-    logStage("[4/4] 发送 AI 完整回复");
-    await sendFeishuTextOnce(client, chat_id, answer, "AI回复");
+    logStage("[4/4] 发送 AI 回复卡片");
+    await sendFeishuCardOnce(client, chat_id, {
+      title: "AI 回复",
+      body: buildAnswerCardBody(answer),
+      template: "blue",
+      stage: "AI回复",
+    });
 
     logStage("流程结束", { chat_id, totalMs: Date.now() - flowStarted });
   } catch (err) {
