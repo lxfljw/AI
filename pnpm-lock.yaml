@@ -12,6 +12,24 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  apps/langgraph:
+    dependencies:
+      '@langchain/core':
+        specifier: ^1.1.45
+        version: 1.1.45(openai@6.37.0(ws@8.20.0)(zod@4.4.3))(ws@8.20.0)
+      '@langchain/langgraph':
+        specifier: ^1.3.0
+        version: 1.3.0(@langchain/core@1.1.45(openai@6.37.0(ws@8.20.0)(zod@4.4.3))(ws@8.20.0))(openai@6.37.0(ws@8.20.0)(zod@4.4.3))(vue@3.5.34(typescript@6.0.3))(ws@8.20.0)(zod-to-json-schema@3.25.2(zod@4.4.3))(zod@4.4.3)
+      '@langchain/ollama':
+        specifier: ^1.2.7
+        version: 1.2.7(@langchain/core@1.1.45(openai@6.37.0(ws@8.20.0)(zod@4.4.3))(ws@8.20.0))
+      langchain:
+        specifier: ^1.4.0
+        version: 1.4.0(@langchain/core@1.1.45(openai@6.37.0(ws@8.20.0)(zod@4.4.3))(ws@8.20.0))(openai@6.37.0(ws@8.20.0)(zod@4.4.3))(vue@3.5.34(typescript@6.0.3))(ws@8.20.0)(zod-to-json-schema@3.25.2(zod@4.4.3))
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   apps/nuxtjs-ai:
     dependencies:
       '@langchain/community':

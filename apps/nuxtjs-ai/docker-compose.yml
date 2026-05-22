@@ -12,6 +12,10 @@ services:
     environment:
       NUXT_OLLAMA_HOST: ${NUXT_OLLAMA_HOST:-http://host.docker.internal:11434}
       NUXT_OLLAMA_MODEL: ${NUXT_OLLAMA_MODEL:-qwen3.5:0.8b}
+      # 容器内 127.0.0.1 不是宿主机 Postgres，须用 host.docker.internal（与 Ollama 同理）
+      NUXT_RAG_DATABASE_URL: ${NUXT_RAG_DATABASE_URL:-postgresql://rag:rag@host.docker.internal:5432/rag}
+      NUXT_RAG_EMBED_MODEL: ${NUXT_RAG_EMBED_MODEL:-mxbai-embed-large:latest}
+      NUXT_RAG_SEARCH_TOP_K: ${NUXT_RAG_SEARCH_TOP_K:-5}
       NUXT_FEISHU_APP_ID: ${NUXT_FEISHU_APP_ID:-}
       NUXT_FEISHU_APP_SECRET: ${NUXT_FEISHU_APP_SECRET:-}
       NUXT_FEISHU_VERIFICATION_TOKEN: ${NUXT_FEISHU_VERIFICATION_TOKEN:-}
