@@ -92,8 +92,9 @@ function levenshteinDistance(a: string, b: string): number {
 
 function maxNameEditDistanceForQuery(queryLen: number): number {
   if (queryLen <= 2) return 1;
-  if (queryLen <= 4) return 2;
-  return 3;
+  if (queryLen <= 4) return 3;
+  if (queryLen <= 6) return 4;
+  return 5;
 }
 
 function documentsMatchingFuzzyPersonName(
@@ -125,6 +126,50 @@ function documentsMatchingFuzzyPersonName(
   return { docs, matchedNames, distance: best };
 }
 
+/** 同姓按编辑距离取最接近的若干人（记错字、记不全时） */
+function documentsMatchingSurnameRanked(
+  documents: Document[],
+  queryName: string,
+  limit = 5,
+): { docs: Document[]; matchedNames: string[]; distance: number } | null {
+  const surname = queryName[0];
+  if (!surname) return null;
+
+  const byName = new Map<string, number>();
+  for (const d of documents) {
+    const n = documentPersonName(d);
+    if (!n || !n.startsWith(surname)) continue;
+    const prev = byName.get(n);
+    const dist = levenshteinDistance(queryName, n);
+    if (prev === undefined || dist < prev) byName.set(n, dist);
+  }
+  if (byName.size === 0) return null;
+
+  const ranked = [...byName.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .slice(0, limit);
+  const matchedNames = ranked.map(([n]) => n);
+  const distance = ranked[0]![1];
+  const docs = documents.filter((d) => {
+    const n = documentPersonName(d);
+    return n !== null && matchedNames.includes(n);
+  });
+  return { docs, matchedNames, distance };
+}
+
+function formatFuzzyNameNote(
+  queryName: string,
+  matchedNames: string[],
+  distance: number,
+  mode: "edit" | "surname",
+): string {
+  const modeText =
+    mode === "surname"
+      ? "未找到完全一致姓名；以下是与您输入最接近的同姓记录"
+      : "无完全一致记录；已按姓名相近匹配";
+  return `【检索说明】问句中的「${queryName}」在库中${modeText}：「${matchedNames.join("、")}」（编辑距离 ${distance}）。请向用户列出候选人供确认，勿把他人 id 直接说成 ${queryName} 的 id。\n`;
+}
+
 function extractMentionedNameFromPrompt(prompt: string): string | null {
   const patterns = [
     /([\u4e00-\u9fa5]{2,4})的学生/,
@@ -142,7 +187,7 @@ function extractMentionedNameFromPrompt(prompt: string): string | null {
   }
 
   const compact = prompt.trim().replace(/\s+/g, "");
-  const bare = compact.match(/^[\u4e00-\u9fa5]{2,4}$/);
+  const bare = compact.match(/^[\u4e00-\u9fa5]{2,6}$/);
   if (bare?.[0]) return bare[0];
 
   return null;
@@ -187,8 +232,31 @@ function resolveByPersonName(
 
   const fuzzy = documentsMatchingFuzzyPersonName(corpusDocuments, nameHint);
   if (fuzzy !== null && fuzzy.docs.length > 0) {
-    const note = `【检索说明】问句中的姓名「${nameHint}」在库中无完全一致记录，已按编辑距离最近匹配为「${fuzzy.matchedNames.join("、")}」（距离 ${fuzzy.distance}）。\n`;
+    const note = formatFuzzyNameNote(
+      nameHint,
+      fuzzy.matchedNames,
+      fuzzy.distance,
+      "edit",
+    );
     const synthetic: [Document, number][] = fuzzy.docs.map((d) => [d, 1]);
+    return note + formatVectorResultsAsRagText(synthetic);
+  }
+
+  const surnameRanked = documentsMatchingSurnameRanked(
+    corpusDocuments,
+    nameHint,
+  );
+  if (surnameRanked !== null && surnameRanked.docs.length > 0) {
+    const note = formatFuzzyNameNote(
+      nameHint,
+      surnameRanked.matchedNames,
+      surnameRanked.distance,
+      "surname",
+    );
+    const synthetic: [Document, number][] = surnameRanked.docs.map((d) => [
+      d,
+      1,
+    ]);
     return note + formatVectorResultsAsRagText(synthetic);
   }
 
@@ -218,7 +286,7 @@ function formatVectorResultsWithNameGuard(
     return `【检索说明】未在知识库中找到姓名「${nameHint}」的一致记录；以下为向量检索结果，回答时勿将他人 id 当作该人。\n${body}`;
   }
 
-  return `【检索说明】知识库中无姓名「${nameHint}」的完全一致记录；以下为向量相似人物（${returnedNames.join("、")}）。回答时必须说明「未找到 ${nameHint}」，不得把下列人物的 id 说成 ${nameHint} 的 id。\n${body}`;
+  return `【检索说明】库中无「${nameHint}」完全一致记录；以下为语义最接近的候选人（${returnedNames.join("、")}）。请用「您是不是要找：…」列出姓名与 id 供用户确认，勿未经确认把 id 说成 ${nameHint} 的 id。\n${body}`;
 }
 
 function documentsMatchingPersonName(
@@ -331,23 +399,6 @@ export async function queryRagKnowledge(
     if (nameHint && corpusDocuments.length > 0) {
       const byName = resolveByPersonName(corpusDocuments, nameHint);
       if (byName !== null) return byName;
-    }
-
-    if (nameHint && corpusDocuments.length > 0) {
-      const names = new Set(
-        corpusDocuments
-          .map((d) => documentPersonName(d))
-          .filter((n): n is string => Boolean(n)),
-      );
-      if (!names.has(nameHint)) {
-        const fuzzy = documentsMatchingFuzzyPersonName(
-          corpusDocuments,
-          nameHint,
-        );
-        if (fuzzy === null) {
-          return `【检索说明】知识库中未找到与「${nameHint}」姓名一致或相近（编辑距离可接受范围内）的记录。请勿编造 id。`;
-        }
-      }
     }
 
     const embedding = await embeddings.embedQuery(prompt);
