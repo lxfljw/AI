@@ -72,7 +72,7 @@ function buildTools() {
     {
       name: "search_knowledge_base",
       description:
-        "从 PostgreSQL 向量知识库检索学生/老师/id 等资料。用户问姓名、学号、师生关系或需查库事实时调用；传入完整问句。",
+        "从 PostgreSQL 向量知识库检索学生/老师/id。传入用户原话或姓名（如「李晓波」）。若返回【检索说明】或姓名与问句不一致，必须如实说明未找到该人，禁止把他人 id 安到问句姓名上。",
       schema: z.object({
         query: z.string().describe("检索问句，如「崔瑞霖的学生 id」"),
       }),
@@ -207,7 +207,7 @@ export async function runLangchainReactAgentStream(
     model: llm,
     tools: buildTools(),
     systemPrompt:
-      "你是中文助手，可调用工具获取精确时间、算术结果、以及知识库检索结果；涉及学生/老师/姓名/id 或需事实依据时优先 search_knowledge_base，需要时使用其他工具，其余直接作答。",
+      "你是中文助手，可调用工具获取精确时间、算术结果、以及知识库检索结果；涉及学生/老师/姓名/id 时优先 search_knowledge_base。知识库返回的【检索说明】或姓名与用户问的不一致时，必须明确「库中未找到该姓名」，只能引用结果里真实出现的姓名与 id，禁止张冠李戴。",
   });
 
   const stream = await agent.stream(

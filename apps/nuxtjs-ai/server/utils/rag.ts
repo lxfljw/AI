@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PGVectorStore } from "@langchain/community/vectorstores/pgvector";
 import { Document } from "@langchain/core/documents";
 import { OllamaEmbeddings } from "@langchain/ollama";
+import pg from "pg";
 
 const RAG_TABLE_NAME = "rag_documents";
 
@@ -132,13 +133,92 @@ function extractMentionedNameFromPrompt(prompt: string): string | null {
     /([\u4e00-\u9fa5]{2,4}?)老师/,
     /学生[：:]\s*([\u4e00-\u9fa5]{2,4})/,
     /老师[：:]\s*([\u4e00-\u9fa5]{2,4})/,
+    /([\u4e00-\u9fa5]{2,4})的?(?:id|ID|编号)/,
   ];
   for (const re of patterns) {
     const m = prompt.match(re);
     const name = m?.[1];
     if (name && name.length >= 2) return name;
   }
+
+  const compact = prompt.trim().replace(/\s+/g, "");
+  const bare = compact.match(/^[\u4e00-\u9fa5]{2,4}$/);
+  if (bare?.[0]) return bare[0];
+
   return null;
+}
+
+function documentPersonName(doc: Document): string | null {
+  const meta = doc.metadata.name;
+  if (typeof meta === "string" && meta.length > 0) return meta;
+  const m = doc.pageContent.match(/姓名：(.+?)，/);
+  return m?.[1]?.trim() ?? null;
+}
+
+async function loadDocumentsFromPostgres(
+  databaseUrl: string,
+): Promise<Document[]> {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  try {
+    const res = await pool.query<{ text: string; metadata: Record<string, unknown> }>(
+      `SELECT text, metadata FROM ${RAG_TABLE_NAME} WHERE metadata->>'name' IS NOT NULL`,
+    );
+    return res.rows.map(
+      (row) =>
+        new Document({
+          pageContent: row.text ?? "",
+          metadata: row.metadata ?? {},
+        }),
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+function resolveByPersonName(
+  corpusDocuments: Document[],
+  nameHint: string,
+): string | null {
+  const nameMatches = documentsMatchingPersonName(corpusDocuments, nameHint);
+  if (nameMatches.length > 0) {
+    const synthetic: [Document, number][] = nameMatches.map((d) => [d, 1]);
+    return formatVectorResultsAsRagText(synthetic);
+  }
+
+  const fuzzy = documentsMatchingFuzzyPersonName(corpusDocuments, nameHint);
+  if (fuzzy !== null && fuzzy.docs.length > 0) {
+    const note = `【检索说明】问句中的姓名「${nameHint}」在库中无完全一致记录，已按编辑距离最近匹配为「${fuzzy.matchedNames.join("、")}」（距离 ${fuzzy.distance}）。\n`;
+    const synthetic: [Document, number][] = fuzzy.docs.map((d) => [d, 1]);
+    return note + formatVectorResultsAsRagText(synthetic);
+  }
+
+  return null;
+}
+
+/** 向量结果中若无问句姓名，附加说明，避免模型张冠李戴 */
+function formatVectorResultsWithNameGuard(
+  nameHint: string,
+  results: [Document, number][],
+): string {
+  const exact = results.filter(
+    ([doc]) => documentPersonName(doc) === nameHint,
+  );
+  if (exact.length > 0) return formatVectorResultsAsRagText(exact);
+
+  const returnedNames = [
+    ...new Set(
+      results
+        .map(([doc]) => documentPersonName(doc))
+        .filter((n): n is string => Boolean(n)),
+    ),
+  ];
+
+  const body = formatVectorResultsAsRagText(results);
+  if (returnedNames.length === 0) {
+    return `【检索说明】未在知识库中找到姓名「${nameHint}」的一致记录；以下为向量检索结果，回答时勿将他人 id 当作该人。\n${body}`;
+  }
+
+  return `【检索说明】知识库中无姓名「${nameHint}」的完全一致记录；以下为向量相似人物（${returnedNames.join("、")}）。回答时必须说明「未找到 ${nameHint}」，不得把下列人物的 id 说成 ${nameHint} 的 id。\n${body}`;
 }
 
 function documentsMatchingPersonName(
@@ -236,39 +316,37 @@ export async function queryRagKnowledge(
   });
 
   try {
-    let corpusDocuments: Document[] = [];
-    if (await fileExists(studentsPath)) {
+    let corpusDocuments = await loadDocumentsFromPostgres(options.databaseUrl);
+    if (corpusDocuments.length === 0 && (await fileExists(studentsPath))) {
       corpusDocuments =
         await loadStudentKnowledgeDocumentsFromText(studentsPath);
     }
 
     const effectiveTopK = resolveSearchTopK(
       topK,
-      Math.max(corpusDocuments.length, 1),
+      Math.max(corpusDocuments.length, 100),
     );
 
     const nameHint = extractMentionedNameFromPrompt(prompt);
     if (nameHint && corpusDocuments.length > 0) {
-      const nameMatches = documentsMatchingPersonName(
-        corpusDocuments,
-        nameHint,
-      );
-      if (nameMatches.length > 0) {
-        const synthetic: [Document, number][] = nameMatches.map((d) => [
-          d,
-          1,
-        ]);
-        return formatVectorResultsAsRagText(synthetic);
-      }
+      const byName = resolveByPersonName(corpusDocuments, nameHint);
+      if (byName !== null) return byName;
+    }
 
-      const fuzzy = documentsMatchingFuzzyPersonName(
-        corpusDocuments,
-        nameHint,
+    if (nameHint && corpusDocuments.length > 0) {
+      const names = new Set(
+        corpusDocuments
+          .map((d) => documentPersonName(d))
+          .filter((n): n is string => Boolean(n)),
       );
-      if (fuzzy !== null && fuzzy.docs.length > 0) {
-        const note = `【检索说明】问句中的姓名「${nameHint}」在库中无完全一致记录，已按编辑距离最近匹配为「${fuzzy.matchedNames.join("、")}」（距离 ${fuzzy.distance}）。\n`;
-        const synthetic: [Document, number][] = fuzzy.docs.map((d) => [d, 1]);
-        return note + formatVectorResultsAsRagText(synthetic);
+      if (!names.has(nameHint)) {
+        const fuzzy = documentsMatchingFuzzyPersonName(
+          corpusDocuments,
+          nameHint,
+        );
+        if (fuzzy === null) {
+          return `【检索说明】知识库中未找到与「${nameHint}」姓名一致或相近（编辑距离可接受范围内）的记录。请勿编造 id。`;
+        }
       }
     }
 
@@ -279,6 +357,9 @@ export async function queryRagKnowledge(
     );
     if (results.length === 0) {
       return "知识库中未检索到相关内容。请确认 PostgreSQL 已启动且已用 apps/server 灌入数据。";
+    }
+    if (nameHint) {
+      return formatVectorResultsWithNameGuard(nameHint, results);
     }
     return formatVectorResultsAsRagText(results);
   } finally {
